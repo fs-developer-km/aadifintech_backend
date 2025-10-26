@@ -18,7 +18,7 @@ app.use(helmet({
 
 // ✅ Enable CORS (allow frontend only)
 app.use(cors({
-  origin: ["http://localhost:4200", "https://yourfrontenddomain.com"], // angular origin
+  origin: ["http://localhost:4200", "https://aadifintechh.netlify.app"], // angular origin
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
