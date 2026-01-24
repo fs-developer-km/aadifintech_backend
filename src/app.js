@@ -23,7 +23,7 @@ app.use(helmet({
 
 // ✅ Enable CORS (allow frontend only)
 app.use(cors({
-  origin: ["http://localhost:4200", "https://www.aadifintech.com"], // angular origin
+  origin: ["http://localhost:4200", "https://www.aadifintech.com","https://aadifintechh.netlify.app"], // angular origin
   methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
   credentials: true
 }));
