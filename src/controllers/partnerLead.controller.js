@@ -137,7 +137,9 @@ export const getPartnerLeads = async (req, res) => {
     }
 
     // ✅ Direct user ID use karo, Partner model nahi
-    const partnerId = req.user._id;
+    // const partnerId = req.user._id;
+    const partnerId = new mongoose.Types.ObjectId(req.user._id);
+
 
     // Build query
     const query = {
@@ -181,10 +183,33 @@ export const getPartnerLeads = async (req, res) => {
       }
     ]);
 
-    const statusStats = stats.reduce((acc, item) => {
-      acc[item._id] = item.count;
-      return acc;
-    }, {});
+    // const statusStats = stats.reduce((acc, item) => {
+    //   acc[item._id] = item.count;
+    //   return acc;
+    // }, {});
+
+    // ✅ NORMALIZED STATUS MAP (ADD HERE)
+const statusMap = {
+  pending: 0,
+  'in-progress': 0,
+  disbursed: 0
+};
+
+stats.forEach(item => {
+  if (!item._id) return;
+
+  switch (item._id) {
+    case 'inProgress':
+    case 'in_progress':
+      statusMap['in-progress'] = item.count;
+      break;
+
+    default:
+      statusMap[item._id] = item.count;
+  }
+});
+
+
 
     return res.status(200).json({
       success: true,
@@ -192,7 +217,9 @@ export const getPartnerLeads = async (req, res) => {
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / parseInt(limit)),
-      stats: statusStats,
+      // stats: statusStats,
+      stats: statusMap,
+
       leads
     });
 
@@ -315,14 +342,14 @@ export const getAssignedLeads = async (req, res) => {
     ]);
 
     // Get stats
-    const baseMatch = req.user.role === "employee" 
+    const baseMatch = req.user.role === "employee"
       ? {
-          $or: [
-            { assignedEmployee: req.user._id },
-            { assignedManager: req.user._id }
-          ],
-          isDeleted: false
-        }
+        $or: [
+          { assignedEmployee: req.user._id },
+          { assignedManager: req.user._id }
+        ],
+        isDeleted: false
+      }
       : { isDeleted: false };
 
     const stats = await PartnerLead.aggregate([
@@ -398,7 +425,7 @@ export const updateLeadStatus = async (req, res) => {
 
     // Check if employee/manager has access
     if (req.user.role === "employee") {
-      const hasAccess = 
+      const hasAccess =
         String(lead.assignedEmployee) === String(req.user._id) ||
         String(lead.assignedManager) === String(req.user._id);
 
@@ -412,7 +439,7 @@ export const updateLeadStatus = async (req, res) => {
 
     // Build update object
     const updateData = {};
-    
+
     if (status) updateData.status = status;
     if (subStatus) updateData.subStatus = subStatus;
     if (priority) updateData.priority = priority;
@@ -508,7 +535,7 @@ export const addRemarkToLead = async (req, res) => {
 
     // Check access
     if (req.user.role === "employee") {
-      const hasAccess = 
+      const hasAccess =
         String(lead.assignedEmployee) === String(req.user._id) ||
         String(lead.assignedManager) === String(req.user._id);
 
@@ -592,7 +619,7 @@ export const getLeadById = async (req, res) => {
 
     // Check access for employees
     if (req.user.role === "employee") {
-      const hasAccess = 
+      const hasAccess =
         String(lead.assignedEmployee._id) === String(req.user._id) ||
         String(lead.assignedManager._id) === String(req.user._id);
 
@@ -629,14 +656,16 @@ export const getEmployeeDashboardStats = async (req, res) => {
       });
     }
 
-    const baseMatch = req.user.role === "employee" 
+    const userId = new mongoose.Types.ObjectId(req.user._id);
+
+    const baseMatch = req.user.role === "employee"
       ? {
-          $or: [
-            { assignedEmployee: req.user._id },
-            { assignedManager: req.user._id }
-          ],
-          isDeleted: false
-        }
+        $or: [
+          { assignedEmployee: userId },
+          { assignedManager: userId }
+        ],
+        isDeleted: false
+      }
       : { isDeleted: false };
 
     // Get overall stats
@@ -651,7 +680,7 @@ export const getEmployeeDashboardStats = async (req, res) => {
           }
         }
       ]),
-      
+
       PartnerLead.aggregate([
         { $match: baseMatch },
         {
@@ -661,7 +690,9 @@ export const getEmployeeDashboardStats = async (req, res) => {
           }
         }
       ]),
-      
+
+
+
       PartnerLead.countDocuments({
         ...baseMatch,
         nextFollowUpDate: {
@@ -669,13 +700,27 @@ export const getEmployeeDashboardStats = async (req, res) => {
           $lt: new Date(new Date().setHours(23, 59, 59, 999))
         }
       }),
-      
+
       PartnerLead.countDocuments({
         ...baseMatch,
         nextFollowUpDate: { $lt: new Date() },
         status: { $nin: ["approved", "disbursed", "rejected", "cancelled"] }
       })
     ]);
+
+    // ---------- PRIORITY MAP (SAFE DEFAULTS) ----------
+    const priorityMap = {
+      urgent: 0,
+      high: 0,
+      medium: 0,
+      low: 0
+    };
+
+    priorityStats.forEach(item => {
+      if (item._id) {
+        priorityMap[item._id] = item.count;
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -687,14 +732,15 @@ export const getEmployeeDashboardStats = async (req, res) => {
           };
           return acc;
         }, {}),
-        byPriority: priorityStats.reduce((acc, item) => {
-          acc[item._id] = item.count;
-          return acc;
-        }, {}),
+
+        // 🔥 FIXED HERE (बाकी सब untouched)
+        byPriority: priorityMap,
+
         todayFollowups,
         overdueTasks
       }
     });
+
 
   } catch (err) {
     console.error("Get Dashboard Stats Error:", err);
