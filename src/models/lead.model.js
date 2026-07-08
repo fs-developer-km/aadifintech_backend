@@ -48,6 +48,16 @@ const leadSchema = new mongoose.Schema(
     leadSource: { type: String, default: "Website" },
     notes: { type: String, default: "New inquiry" },
 
+    assignmentHistory: [
+      {
+        employee: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        employeeName: String,
+        assignedDate: String,
+        status: { type: String, enum: ["pending", "completed"], default: "pending" },
+        completedDate: String
+      }
+    ],
+
     // ⭐ NEW FIELD — Employee ID jisko lead assign hogi
     assignTo: {
       type: mongoose.Schema.Types.ObjectId,

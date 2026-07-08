@@ -7,7 +7,7 @@ import rateLimit from "express-rate-limit";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes.js";
 import leadRoutes from "./routes/lead.routes.js"
-import cookiesRoutes from "./routes/visitorRoutes.js"
+// import cookiesRoutes from "./routes/visitorRoutes.js"
 import partner from "./routes/partner.routes.js"
 import partnerLead from "./routes/partnerLead.routes.js"
 import attendance from "./routes/attendance.routes.js"
@@ -50,7 +50,7 @@ app.use(limiter);
 // ✅ Base Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/lead", leadRoutes);
-app.use("/api/visitor", cookiesRoutes);
+// app.use("/api/visitor", cookiesRoutes);
 app.use("/api/partner", partner);
 app.use("/api/partnerLead", partnerLead);
 app.use("/api/attendance", attendance);

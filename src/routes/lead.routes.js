@@ -14,7 +14,9 @@ router.get("/lists", getLeadsss);
 // PUT assign lead to employee
 
 
-router.put("/assign/:id", assignLead);
+// router.put("/assign/:id", assignLead);
+
+router.put("/assign/:id", protect, verifyAdmin, assignLead);
 
 // delete api 
 

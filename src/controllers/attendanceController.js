@@ -428,57 +428,75 @@ export const getAttendanceByDateRange = async (req, res) => {
 };
 
 // 11. GET MONTHLY REPORT
+// 11. GET MONTHLY REPORT — Har employee ka Present/Absent/HalfDay/Leave/Late breakdown
 export const getMonthlyReport = async (req, res) => {
   try {
-    const { month, year } = req.query;
+    const { month, year, employeeId } = req.query;
 
     const currentMonth = month ? parseInt(month) : new Date().getMonth() + 1;
     const currentYear = year ? parseInt(year) : new Date().getFullYear();
 
     const startDate = new Date(currentYear, currentMonth - 1, 1);
     const endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59);
+    const workingDays = new Date(currentYear, currentMonth, 0).getDate(); // month ke total days
 
-    const attendance = await Attendance.find({
-      date: { $gte: startDate, $lte: endDate }
-    }).populate('employeeId', 'name mobile employeeCode');
+    // ✅ Saare employees lo (agar employeeId diya hai to sirf usko)
+    const employeeQuery = { role: 'employee' };
+    if (employeeId) employeeQuery._id = employeeId;
+    const allEmployees = await User.find(employeeQuery).select('name mobile employeeCode');
 
-    // Group by employee
-    const employeeReport = {};
- attendance.forEach(record => {
-  if (!record.employeeId || !record.employeeId._id) {
-    console.warn('Attendance without employee:', record._id);
-    return;
-  }
+    // Month ke saare attendance records
+    const attendanceQuery = { date: { $gte: startDate, $lte: endDate } };
+    if (employeeId) attendanceQuery.employeeId = employeeId;
+    const attendance = await Attendance.find(attendanceQuery);
 
-  const empId = record.employeeId._id.toString();
-
-  if (!employeeReport[empId]) {
-    employeeReport[empId] = {
-      employee: record.employeeId,
-      totalPresent: 0,
-      totalHalfDay: 0,
-      totalLate: 0,
-      totalEarlyOut: 0,
-      totalWorkHours: 0,
-      records: []
+    // Month ke saare approved leaves (overlap check)
+    const leaveQuery = {
+      status: 'Approved',
+      fromDate: { $lte: endDate },
+      toDate: { $gte: startDate }
     };
-  }
+    if (employeeId) leaveQuery.employeeId = employeeId;
+    const leaves = await LeaveRequest.find(leaveQuery);
 
-  if (record.status === 'Present') employeeReport[empId].totalPresent++;
-  if (record.status === 'Half-Day') employeeReport[empId].totalHalfDay++;
-  if (record.isLate) employeeReport[empId].totalLate++;
-  if (record.isEarlyOut) employeeReport[empId].totalEarlyOut++;
+    // ✅ Har employee ke liye full report banao — chahe uska record ho ya na ho
+    const report = allEmployees.map(emp => {
+      const empIdStr = emp._id.toString();
+      const empAttendance = attendance.filter(a => a.employeeId.toString() === empIdStr);
 
-  employeeReport[empId].totalWorkHours += (record.workDuration || 0) / 60;
-  employeeReport[empId].records.push(record);
-});
+      const totalPresent = empAttendance.filter(a => a.status === 'Present').length;
+      const totalHalfDay = empAttendance.filter(a => a.status === 'Half-Day').length;
+      const totalLate = empAttendance.filter(a => a.isLate).length;
+      const totalEarlyOut = empAttendance.filter(a => a.isEarlyOut).length;
+      const totalWorkHours = empAttendance.reduce((sum, a) => sum + (a.workDuration || 0), 0) / 60;
 
+      const empLeaves = leaves.filter(l => l.employeeId.toString() === empIdStr);
+      const totalLeave = empLeaves.reduce((sum, l) => sum + (l.numberOfDays || 0), 0);
+
+      // ✅ Absent = Working Days - (Present + Half-Day + Leave), 0 se kam nahi ho sakta
+      const markedDays = totalPresent + totalHalfDay + totalLeave;
+      const totalAbsent = Math.max(workingDays - markedDays, 0);
+
+      return {
+        employee: emp,
+        totalPresent,
+        totalHalfDay,
+        totalLate,
+        totalEarlyOut,
+        totalLeave,
+        totalAbsent,
+        totalWorkHours: Number(totalWorkHours.toFixed(1)),
+        workingDays
+      };
+    });
 
     res.status(200).json({
       success: true,
       month: currentMonth,
       year: currentYear,
-      report: Object.values(employeeReport)
+      workingDays,
+      totalEmployees: allEmployees.length,
+      report
     });
 
   } catch (error) {

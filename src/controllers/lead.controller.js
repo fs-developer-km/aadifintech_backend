@@ -5,15 +5,24 @@ import mongoose from "mongoose";
 const getDateTime = () => {
   const now = new Date();
   const optionsDate = { day: '2-digit', month: 'short', year: 'numeric' };
-  const submittedDate = now.toLocaleDateString('en-GB', optionsDate); // e.g. "18 Oct 2025"
+  const submittedDate = now.toLocaleDateString('en-GB', optionsDate);
   const submittedTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   return { submittedDate, submittedTime };
+};
+
+// ✅ Frontend jaisa dd/mm/yyyy format — history entries isi format me save hongi
+const getSimpleDate = () => {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const year = now.getFullYear();
+  return `${day}/${month}/${year}`;
 };
 
 // ----------------- Create Lead -----------------
 export const createLead = async (req, res) => {
   try {
-    const { leadName, leadPhone , notes} = req.body;
+    const { leadName, leadPhone, notes } = req.body;
 
     if (!leadName || !leadPhone || !notes) {
       return res.status(400).json({ success: false, msg: "Name and phone required" });
@@ -45,6 +54,7 @@ export const getLeadsss = async (req, res) => {
   try {
     const leads = await Lead.find()
       .populate("assignTo", "name email mobile")
+      .populate("assignmentHistory.employee", "name email")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -55,51 +65,39 @@ export const getLeadsss = async (req, res) => {
     });
 
   } catch (err) {
-    res.status(500).json({ 
-      success: false, 
-      msg: "Server error", 
-      error: err.message 
+    res.status(500).json({
+      success: false,
+      msg: "Server error",
+      error: err.message
     });
   }
 };
-
-// NEW CODE FOR GET FILTER EMPLOYEE AND ALL FOR ADMIN
 
 // ----------------- Get All Leads (Admin + Employee Filter) -----------------
 export const getLeads = async (req, res) => {
   try {
 
     console.log("Logged-in User ID =", req.user._id);
-console.log("User Role =", req.user.role);
-
+    console.log("User Role =", req.user.role);
 
     let leads;
 
-    // ⭐ If logged-in user is Admin → return all leads
     if (req.user.role === "admin") {
       leads = await Lead.find()
         .populate("assignTo", "name email mobile")
+        .populate("assignmentHistory.employee", "name email")
         .sort({ createdAt: -1 })
         .lean();
     }
 
-    // ⭐ If logged-in user is Employee → return only their leads
-    // else if (req.user.role === "employee") {
-    //   leads = await Lead.find({ assignTo: req.user._id })
-    //     .populate("assignTo", "name email mobile")
-    //     .sort({ createdAt: -1 })
-    //     .lean();
-    // }
-
     else if (req.user.role === "employee") {
-  leads = await Lead.find({ assignTo: req.user._id })
-    .populate("assignTo", "name email mobile")
-    .sort({ createdAt: -1 })
-    .lean();
-}
+      leads = await Lead.find({ assignTo: req.user._id })
+        .populate("assignTo", "name email mobile")
+        .populate("assignmentHistory.employee", "name email")
+        .sort({ createdAt: -1 })
+        .lean();
+    }
 
-
-    // ⭐ Any other user (partner/user) → No access
     else {
       return res.status(403).json({
         success: false,
@@ -122,12 +120,8 @@ console.log("User Role =", req.user.role);
   }
 };
 
-
-
-
-
 // ------------------------------------------------------
-// ⭐ NEW → Assign Lead to Employee
+// ⭐ Assign Lead to Employee — ab history me push bhi karta hai
 // ------------------------------------------------------
 export const assignLead = async (req, res) => {
   try {
@@ -144,9 +138,8 @@ export const assignLead = async (req, res) => {
       });
     }
 
-    // ✅ Pehle check karo employee exists karta hai ya nahi
     const employeeExists = await mongoose.model('User').findById(employeeId);
-    
+
     if (!employeeExists) {
       console.log("❌ Employee not found:", employeeId);
       return res.status(404).json({
@@ -157,14 +150,27 @@ export const assignLead = async (req, res) => {
 
     console.log("✅ Employee found:", employeeExists.name);
 
+    // ✅ Naya assignment history array me push hoga — purani history untouched rahegi
     const updatedLead = await Lead.findByIdAndUpdate(
       leadId,
-      { assignTo: employeeId },
+      {
+        assignTo: employeeId,
+        status: "pending",
+        $push: {
+          assignmentHistory: {
+            employee: employeeId,
+            employeeName: employeeExists.name,
+            assignedDate: getSimpleDate(),
+            status: "pending"
+          }
+        }
+      },
       { new: true }
-    ).populate("assignTo", "name email mobile");
-    
+    )
+      .populate("assignTo", "name email mobile")
+      .populate("assignmentHistory.employee", "name email");
+
     console.log("✅ Updated Lead:", updatedLead);
-    console.log("✅ Populated assignTo:", updatedLead.assignTo);
 
     if (!updatedLead) {
       return res.status(404).json({
@@ -188,14 +194,11 @@ export const assignLead = async (req, res) => {
   }
 };
 
-// delete lead api 
-
 // ----------------- Delete Lead (Only Admin) -----------------
 export const deleteLead = async (req, res) => {
   try {
     const leadId = req.params.id;
 
-    // ✅ ADMIN check (role must be "admin")
     if (!req.user || req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
@@ -230,16 +233,19 @@ export const deleteLead = async (req, res) => {
   }
 };
 
-// only employee filter lead
-
-// action update success and penfin
-
+// ------------------------------------------------------
+// ⭐ Update Lead Status — ab latest history entry ko bhi update karta hai
+// ------------------------------------------------------
 export const updateLeadStatus = async (req, res) => {
   try {
+    console.log("========== UPDATE STATUS ==========");
+    console.log("User:", req.user._id, req.user.role);
+    console.log("Body:", req.body);
+    console.log("Lead ID:", req.params.id);
+
     const leadId = req.params.id;
     const { status } = req.body;
 
-    // Only allow two values
     if (!["pending", "success"].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -247,9 +253,8 @@ export const updateLeadStatus = async (req, res) => {
       });
     }
 
-    // Find the lead
     const lead = await Lead.findById(leadId);
-    
+
     if (!lead) {
       return res.status(404).json({
         success: false,
@@ -257,33 +262,50 @@ export const updateLeadStatus = async (req, res) => {
       });
     }
 
-    // ❌ Admin cannot update lead status
+    console.log("Lead AssignTo:", lead.assignTo?.toString());
+    console.log("Logged User:", req.user._id?.toString());
+    console.log("Role:", req.user.role);
+
     if (req.user.role === "admin") {
+      // Allow
+    }
+    else if (req.user.role === "employee") {
+      if (!lead.assignTo || lead.assignTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          msg: "You are not allowed to update this lead"
+        });
+      }
+    }
+    else {
       return res.status(403).json({
         success: false,
-        msg: "Only employees can update status"
+        msg: "Unauthorized access"
       });
     }
 
-    // ✔ Employee can update only their assigned leads
-    if (req.user.role === "employee" && String(lead.assignTo) !== String(req.user._id)) {
-      return res.status(403).json({
-        success: false,
-        msg: "You are not allowed to update this lead"
-      });
+    // ✅ Latest (sabse aakhri) assignment history entry ko update karo
+    if (lead.assignmentHistory && lead.assignmentHistory.length > 0) {
+      const lastIndex = lead.assignmentHistory.length - 1;
+      lead.assignmentHistory[lastIndex].status = status === "success" ? "completed" : "pending";
+      lead.assignmentHistory[lastIndex].completedDate = status === "success" ? getSimpleDate() : undefined;
     }
 
-    // Update status
     lead.status = status;
     await lead.save();
+
+    const populatedLead = await Lead.findById(leadId)
+      .populate("assignTo", "name email mobile")
+      .populate("assignmentHistory.employee", "name email");
 
     return res.status(200).json({
       success: true,
       msg: "Status updated successfully",
-      lead
+      lead: populatedLead
     });
 
   } catch (err) {
+    console.error("❌ Update Status Error:", err);
     res.status(500).json({
       success: false,
       msg: "Server error",
@@ -291,6 +313,3 @@ export const updateLeadStatus = async (req, res) => {
     });
   }
 };
-
-
-// 
