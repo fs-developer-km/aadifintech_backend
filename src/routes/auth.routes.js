@@ -19,7 +19,10 @@ import {
   getEmployeesForDropdown,      // ✅ NEW
   updatePartnerTagging,           // ✅ NEW
   getPartnersByEmployee,          // ✅ NEW
-  getPartnersByManager            // ✅ NEW
+  getPartnersByManager, // ✅ NEW
+    updateUserByAdmin, 
+
+
 } from "../controllers/auth.controller.js";
 import { verifyAdmin, protect } from "../middlewares/auth.middleware.js";
 
@@ -50,9 +53,12 @@ router.get("/user/profile/:id", protect, getUserProfile);
 // ADMIN ONLY ROUTES
 // ============================================
 
+
+
 // User Management
 router.get("/getUser", protect, verifyAdmin, getAllUsers);
 router.delete("/delete-user/:id", protect, verifyAdmin, deleteUserByAdmin);
+router.put("/update-user/:id", protect, verifyAdmin, updateUserByAdmin); 
 
 // Employee Management
 router.get("/employees", protect, verifyAdmin, getAllEmployees);

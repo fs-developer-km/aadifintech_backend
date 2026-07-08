@@ -1072,6 +1072,86 @@ export const getUserProfile = async (req, res) => {
 };
 
 
+// ============================================
+// ✅ NEW: Update User by Admin (Edit any role + optional password change)
+// ============================================
+export const updateUserByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      mobile,
+      accountStatus,
+      newPassword,
+      // employee fields
+      department,
+      designation,
+      employeeCode,
+      // partner fields
+      companyName,
+      businessType,
+      commissionType,
+      commissionValue,
+      gstNumber,
+      address
+    } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, msg: "User not found" });
+    }
+
+    // Mobile change ke liye duplicate check
+    if (mobile && mobile !== user.mobile) {
+      const existing = await User.findOne({ mobile, _id: { $ne: id } });
+      if (existing) {
+        return res.status(400).json({ success: false, msg: "Mobile number already in use by another account" });
+      }
+      user.mobile = mobile;
+    }
+
+    if (name !== undefined) user.name = name;
+    if (accountStatus !== undefined) user.accountStatus = accountStatus;
+
+    // Role-specific fields — sirf usi role ke user pe apply honge
+    if (user.role === "employee") {
+      if (department !== undefined) user.department = department;
+      if (designation !== undefined) user.designation = designation;
+      if (employeeCode !== undefined) user.employeeCode = employeeCode;
+    }
+
+    if (user.role === "partner") {
+      if (companyName !== undefined) user.companyName = companyName;
+      if (businessType !== undefined) user.businessType = businessType;
+      if (commissionType !== undefined) user.commissionType = commissionType;
+      if (commissionValue !== undefined) user.commissionValue = commissionValue;
+      if (gstNumber !== undefined) user.gstNumber = gstNumber;
+      if (address !== undefined) user.address = address;
+    }
+
+    // Password change (optional)
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        return res.status(400).json({ success: false, msg: "Password must be at least 6 characters long" });
+      }
+      user.password = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    }
+
+    await user.save();
+
+    const updatedUser = await User.findById(id).select("-password").lean();
+
+    return res.status(200).json({
+      success: true,
+      msg: "User updated successfully",
+      user: updatedUser
+    });
+
+  } catch (err) {
+    console.error("Update user error:", err);
+    return res.status(500).json({ success: false, msg: "Server error", error: err.message });
+  }
+};
 
 
 
