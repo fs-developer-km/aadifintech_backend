@@ -10,7 +10,8 @@ import {
   getPartnerById,
   deletePartner,
   getPartnerStats,
-  updatePartnerStatus
+  updatePartnerStatus,
+   registerPartnerDirect, 
 } from '../controllers/partner.controller.js';
 
 const router = express.Router();
@@ -19,6 +20,8 @@ const router = express.Router();
 router.post('/send-otp', sendOTP);
 router.post('/verify-register', verifyOTPAndRegister);
 router.post('/resend-otp', resendOTP);
+
+router.post('/register', registerPartnerDirect); 
 
 // ✅ Admin Routes (Add auth middleware in production)
 router.get('/partners', getAllPartners);

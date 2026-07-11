@@ -199,6 +199,85 @@ export const verifyOTPAndRegister = async (req, res) => {
 };
 
 
+// ==========================================
+// DIRECT REGISTER (No OTP) — from website "Become a Partner" form
+// ==========================================
+export const registerPartnerDirect = async (req, res) => {
+  try {
+    const {
+      name,
+      mobile,
+      email,
+      profession,
+      city,
+      state,
+      experienceYears,
+      companyName
+    } = req.body;
+
+    // Validation
+    if (!name || name.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name must be at least 3 characters'
+      });
+    }
+
+    const mobileRegex = /^[6-9]\d{9}$/;
+    if (!mobile || !mobileRegex.test(mobile)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid mobile number. Must be 10 digits starting with 6-9'
+      });
+    }
+
+    const data = {
+      name: name.trim(),
+      mobile,
+      email: email || undefined,
+      profession: profession || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      experienceYears: experienceYears || undefined,
+      companyName: companyName || undefined
+    };
+
+    let partner = await Partner.findOne({ mobile });
+
+    if (partner) {
+      // Same mobile dubara aaya toh existing record hi update kardo
+      Object.assign(partner, data);
+      await partner.save();
+    } else {
+      partner = await Partner.create(data);
+    }
+
+    console.log(`✅ Partner lead registered (no OTP): ${data.name} - ${mobile}`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Partner lead submitted successfully',
+      data: partner
+    });
+
+  } catch (error) {
+    console.error('❌ Register Partner Direct Error:', error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number already registered'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to submit lead'
+    });
+  }
+};
+
+
 
 
 // ==========================================

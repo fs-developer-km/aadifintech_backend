@@ -3,6 +3,8 @@ import {
   createPartnerLead,
   getPartnerLeads,
   getPartnerLeadById,
+  updatePartnerLead,
+  deletePartnerLead,
   getAssignedLeads,
   updateLeadStatus,
   addRemarkToLead,
@@ -25,6 +27,12 @@ router.get("/partner/my-leads", getPartnerLeads);
 
 // Get single lead details (Partner)
 router.get("/partner/:id", getPartnerLeadById);
+
+// ✅ NEW: Edit own lead (Partner only, basic fields)
+router.put("/partner/:id", updatePartnerLead);
+
+// ✅ NEW: Delete own lead (Partner only, soft delete)
+router.delete("/partner/:id", deletePartnerLead);
 
 // ==================== EMPLOYEE/MANAGER ROUTES ====================
 

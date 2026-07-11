@@ -11,6 +11,9 @@ const getDateTime = () => {
   return { submittedDate, submittedTime };
 };
 
+// ✅ FIX: single source of truth for which roles count as "assigned team" roles
+const ASSIGNED_ROLES = ["employee", "manager"];
+
 // ==================== PARTNER APIs ====================
 
 // Create Lead by Partner
@@ -24,6 +27,7 @@ export const createPartnerLead = async (req, res) => {
       loanAmount,
       monthlyIncome,
       employmentType,
+      priority,
       remarks: initialRemark
     } = req.body;
 
@@ -45,8 +49,8 @@ export const createPartnerLead = async (req, res) => {
 
     // ✅ Get partner details from User model (not separate Partner model)
     const partner = await User.findById(req.user._id)
-      .populate("assignedEmployee", "name email mobile")
-      .populate("assignedManager", "name email mobile");
+      .populate("assignedEmployee", "name email mobile role")
+      .populate("assignedManager", "name email mobile role");
 
     if (!partner) {
       return res.status(404).json({
@@ -87,6 +91,9 @@ export const createPartnerLead = async (req, res) => {
       assignedManager: partner.assignedManager._id,
       submittedDate,
       submittedTime,
+      // ✅ FIX: priority was never set explicitly before, so it silently
+      // stayed undefined/blank in the table unless the schema had its own default.
+      priority: priority || "medium",
       remarks: initialRemark ? [{
         message: initialRemark,
         addedBy: req.user._id,
@@ -137,9 +144,7 @@ export const getPartnerLeads = async (req, res) => {
     }
 
     // ✅ Direct user ID use karo, Partner model nahi
-    // const partnerId = req.user._id;
     const partnerId = new mongoose.Types.ObjectId(req.user._id);
-
 
     // Build query
     const query = {
@@ -183,33 +188,26 @@ export const getPartnerLeads = async (req, res) => {
       }
     ]);
 
-    // const statusStats = stats.reduce((acc, item) => {
-    //   acc[item._id] = item.count;
-    //   return acc;
-    // }, {});
+    // ✅ NORMALIZED STATUS MAP
+    const statusMap = {
+      pending: 0,
+      'in-progress': 0,
+      disbursed: 0
+    };
 
-    // ✅ NORMALIZED STATUS MAP (ADD HERE)
-const statusMap = {
-  pending: 0,
-  'in-progress': 0,
-  disbursed: 0
-};
+    stats.forEach(item => {
+      if (!item._id) return;
 
-stats.forEach(item => {
-  if (!item._id) return;
+      switch (item._id) {
+        case 'inProgress':
+        case 'in_progress':
+          statusMap['in-progress'] = item.count;
+          break;
 
-  switch (item._id) {
-    case 'inProgress':
-    case 'in_progress':
-      statusMap['in-progress'] = item.count;
-      break;
-
-    default:
-      statusMap[item._id] = item.count;
-  }
-});
-
-
+        default:
+          statusMap[item._id] = item.count;
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -217,9 +215,7 @@ stats.forEach(item => {
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / parseInt(limit)),
-      // stats: statusStats,
       stats: statusMap,
-
       leads
     });
 
@@ -278,6 +274,118 @@ export const getPartnerLeadById = async (req, res) => {
   }
 };
 
+// ✅ NEW: Edit Lead (Partner — only their own lead, only basic fields)
+export const updatePartnerLead = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== "partner") {
+      return res.status(403).json({
+        success: false,
+        msg: "Only partners can edit their leads"
+      });
+    }
+
+    const {
+      customerName,
+      customerMobile,
+      customerEmail,
+      loanType,
+      loanAmount,
+      monthlyIncome,
+      employmentType,
+      priority
+    } = req.body;
+
+    const lead = await PartnerLead.findOne({
+      _id: id,
+      submittedBy: req.user._id,
+      isDeleted: false
+    });
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        msg: "Lead not found"
+      });
+    }
+
+    // Partner can only edit basic lead info — status/assignment stays
+    // in the hands of employee/manager/admin.
+    if (customerName) lead.customerName = customerName;
+    if (customerMobile) lead.customerMobile = customerMobile;
+    if (customerEmail !== undefined) lead.customerEmail = customerEmail;
+    if (loanType) lead.loanType = loanType;
+    if (loanAmount) lead.loanAmount = loanAmount;
+    if (monthlyIncome !== undefined) lead.monthlyIncome = monthlyIncome;
+    if (employmentType) lead.employmentType = employmentType;
+    if (priority) lead.priority = priority;
+
+    await lead.save();
+
+    const updatedLead = await PartnerLead.findById(id)
+      .populate("assignedEmployee", "name email mobile")
+      .populate("assignedManager", "name email mobile");
+
+    return res.status(200).json({
+      success: true,
+      msg: "Lead updated successfully",
+      lead: updatedLead
+    });
+
+  } catch (err) {
+    console.error("Update Partner Lead Error:", err);
+    res.status(500).json({
+      success: false,
+      msg: "Server error",
+      error: err.message
+    });
+  }
+};
+
+// ✅ NEW: Delete Lead (Partner — soft delete their own lead)
+export const deletePartnerLead = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== "partner") {
+      return res.status(403).json({
+        success: false,
+        msg: "Only partners can delete their leads"
+      });
+    }
+
+    const lead = await PartnerLead.findOne({
+      _id: id,
+      submittedBy: req.user._id,
+      isDeleted: false
+    });
+
+    if (!lead) {
+      return res.status(404).json({
+        success: false,
+        msg: "Lead not found"
+      });
+    }
+
+    lead.isDeleted = true;
+    await lead.save();
+
+    return res.status(200).json({
+      success: true,
+      msg: "Lead deleted successfully"
+    });
+
+  } catch (err) {
+    console.error("Delete Partner Lead Error:", err);
+    res.status(500).json({
+      success: false,
+      msg: "Server error",
+      error: err.message
+    });
+  }
+};
+
 // ==================== EMPLOYEE/MANAGER APIs ====================
 
 // Get Assigned Leads (Employee/Manager)
@@ -285,7 +393,9 @@ export const getAssignedLeads = async (req, res) => {
   try {
     const { status, priority, page = 1, limit = 20, search, dateFrom, dateTo } = req.query;
 
-    if (!["employee", "admin"].includes(req.user.role)) {
+    // ✅ FIX: manager wasn't allowed here before, so a manager's request
+    // was rejected with 403 and their assigned leads never loaded.
+    if (![...ASSIGNED_ROLES, "admin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         msg: "Unauthorized access"
@@ -294,14 +404,17 @@ export const getAssignedLeads = async (req, res) => {
 
     // Build query
     let query = { isDeleted: false };
+    const andConditions = [];
 
-    // For employees, show only their assigned leads
+    // For employees/managers, show only leads assigned to them
     // For admin, show all leads
-    if (req.user.role === "employee") {
-      query.$or = [
-        { assignedEmployee: req.user._id },
-        { assignedManager: req.user._id }
-      ];
+    if (ASSIGNED_ROLES.includes(req.user.role)) {
+      andConditions.push({
+        $or: [
+          { assignedEmployee: req.user._id },
+          { assignedManager: req.user._id }
+        ]
+      });
     }
 
     if (status) {
@@ -312,19 +425,28 @@ export const getAssignedLeads = async (req, res) => {
       query.priority = priority;
     }
 
+    // ✅ FIX: this used to overwrite query.$or (the assignment filter above)
+    // so a search by an employee/manager showed everyone's leads, not just theirs.
+    // Now it's combined via $and instead of clobbering the same key.
     if (search) {
-      query.$or = [
-        { customerName: { $regex: search, $options: 'i' } },
-        { customerMobile: { $regex: search, $options: 'i' } },
-        { applicationNumber: { $regex: search, $options: 'i' } },
-        { partnerName: { $regex: search, $options: 'i' } }
-      ];
+      andConditions.push({
+        $or: [
+          { customerName: { $regex: search, $options: 'i' } },
+          { customerMobile: { $regex: search, $options: 'i' } },
+          { applicationNumber: { $regex: search, $options: 'i' } },
+          { partnerName: { $regex: search, $options: 'i' } }
+        ]
+      });
     }
 
     if (dateFrom || dateTo) {
       query.createdAt = {};
       if (dateFrom) query.createdAt.$gte = new Date(dateFrom);
       if (dateTo) query.createdAt.$lte = new Date(dateTo);
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -342,7 +464,7 @@ export const getAssignedLeads = async (req, res) => {
     ]);
 
     // Get stats
-    const baseMatch = req.user.role === "employee"
+    const baseMatch = ASSIGNED_ROLES.includes(req.user.role)
       ? {
         $or: [
           { assignedEmployee: req.user._id },
@@ -404,7 +526,8 @@ export const updateLeadStatus = async (req, res) => {
       tenure
     } = req.body;
 
-    if (!["employee", "admin"].includes(req.user.role)) {
+    // ✅ FIX: added "manager"
+    if (![...ASSIGNED_ROLES, "admin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         msg: "Only employees/managers can update lead status"
@@ -423,8 +546,8 @@ export const updateLeadStatus = async (req, res) => {
       });
     }
 
-    // Check if employee/manager has access
-    if (req.user.role === "employee") {
+    // ✅ FIX: check access for both employee and manager, not just employee
+    if (ASSIGNED_ROLES.includes(req.user.role)) {
       const hasAccess =
         String(lead.assignedEmployee) === String(req.user._id) ||
         String(lead.assignedManager) === String(req.user._id);
@@ -514,7 +637,8 @@ export const addRemarkToLead = async (req, res) => {
       });
     }
 
-    if (!["employee", "partner", "admin"].includes(req.user.role)) {
+    // ✅ FIX: added "manager"
+    if (![...ASSIGNED_ROLES, "partner", "admin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         msg: "Unauthorized access"
@@ -533,8 +657,8 @@ export const addRemarkToLead = async (req, res) => {
       });
     }
 
-    // Check access
-    if (req.user.role === "employee") {
+    // ✅ FIX: check access for both employee and manager
+    if (ASSIGNED_ROLES.includes(req.user.role)) {
       const hasAccess =
         String(lead.assignedEmployee) === String(req.user._id) ||
         String(lead.assignedManager) === String(req.user._id);
@@ -592,7 +716,8 @@ export const getLeadById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!["employee", "admin"].includes(req.user.role)) {
+    // ✅ FIX: added "manager"
+    if (![...ASSIGNED_ROLES, "admin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         msg: "Unauthorized access"
@@ -617,11 +742,11 @@ export const getLeadById = async (req, res) => {
       });
     }
 
-    // Check access for employees
-    if (req.user.role === "employee") {
+    // ✅ FIX: check access for both employee and manager
+    if (ASSIGNED_ROLES.includes(req.user.role)) {
       const hasAccess =
-        String(lead.assignedEmployee._id) === String(req.user._id) ||
-        String(lead.assignedManager._id) === String(req.user._id);
+        (lead.assignedEmployee && String(lead.assignedEmployee._id) === String(req.user._id)) ||
+        (lead.assignedManager && String(lead.assignedManager._id) === String(req.user._id));
 
       if (!hasAccess) {
         return res.status(403).json({
@@ -649,7 +774,8 @@ export const getLeadById = async (req, res) => {
 // Get Dashboard Stats (Employee/Manager)
 export const getEmployeeDashboardStats = async (req, res) => {
   try {
-    if (!["employee", "admin"].includes(req.user.role)) {
+    // ✅ FIX: added "manager"
+    if (![...ASSIGNED_ROLES, "admin"].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         msg: "Unauthorized access"
@@ -658,7 +784,7 @@ export const getEmployeeDashboardStats = async (req, res) => {
 
     const userId = new mongoose.Types.ObjectId(req.user._id);
 
-    const baseMatch = req.user.role === "employee"
+    const baseMatch = ASSIGNED_ROLES.includes(req.user.role)
       ? {
         $or: [
           { assignedEmployee: userId },
@@ -690,8 +816,6 @@ export const getEmployeeDashboardStats = async (req, res) => {
           }
         }
       ]),
-
-
 
       PartnerLead.countDocuments({
         ...baseMatch,
@@ -732,15 +856,11 @@ export const getEmployeeDashboardStats = async (req, res) => {
           };
           return acc;
         }, {}),
-
-        // 🔥 FIXED HERE (बाकी सब untouched)
         byPriority: priorityMap,
-
         todayFollowups,
         overdueTasks
       }
     });
-
 
   } catch (err) {
     console.error("Get Dashboard Stats Error:", err);
