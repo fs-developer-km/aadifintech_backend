@@ -1,6 +1,7 @@
 // src/controllers/conveyance.controller.js
 import Conveyance from "../models/conveyance.model.js";
 import User from "../models/user.model.js";
+import { CONVEYANCE_RATES } from "../config/conveyanceRates.js";
 
 // =============================================
 // 📝 Create or Update Conveyance Entry (Employee)
@@ -436,6 +437,22 @@ export const getConveyanceStats = async (req, res, next) => {
     res.status(500).json({
       success: false,
       msg: "Error fetching statistics",
+      error: err.message
+    });
+  }
+};
+
+
+export const getConveyanceRates = async (req, res, next) => {
+  try {
+    res.status(200).json({
+      success: true,
+      data: CONVEYANCE_RATES
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      msg: "Error fetching rates",
       error: err.message
     });
   }

@@ -1,5 +1,6 @@
 // src/models/conveyance.model.js
 import mongoose from "mongoose";
+import { calculateConveyanceAmount } from "../config/conveyanceRates.js";
 
 const conveyanceSchema = new mongoose.Schema(
   {
@@ -19,7 +20,7 @@ const conveyanceSchema = new mongoose.Schema(
     },
     month: {
       type: String,
-      required: true // Format: "YYYY-MM" (e.g., "2025-01")
+      required: true
     },
     year: {
       type: Number,
@@ -51,10 +52,14 @@ const conveyanceSchema = new mongoose.Schema(
           enum: ["bike", "car", "auto", "taxi", "public_transport", "own_vehicle"],
           required: true
         },
+        ratePerKm: {
+          type: Number,
+          default: 0
+        },
         amount: {
           type: Number,
-          required: true,
-          min: 0
+          default: 0
+          // 👆 ab client se nahi aata, auto-calculate hota hai neeche pre-save me
         },
         purpose: {
           type: String,
@@ -80,41 +85,32 @@ const conveyanceSchema = new mongoose.Schema(
       enum: ["draft", "submitted", "approved", "rejected", "paid"],
       default: "draft"
     },
-    submittedAt: {
-      type: Date
-    },
-    approvedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
-    },
-    approvedAt: {
-      type: Date
-    },
-    rejectionReason: {
-      type: String
-    },
-    adminRemarks: {
-      type: String
-    }
+    submittedAt: { type: Date },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    approvedAt: { type: Date },
+    rejectionReason: { type: String },
+    adminRemarks: { type: String }
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
 
-// Index for faster queries
 conveyanceSchema.index({ employeeId: 1, month: 1 });
 conveyanceSchema.index({ status: 1 });
 
-// Calculate totals before saving
+// 🔥 Har entry ka amount + rate auto-calculate, phir total sum
 conveyanceSchema.pre("save", function (next) {
   if (this.entries && this.entries.length > 0) {
-    this.totalDistance = this.entries.reduce((sum, entry) => sum + entry.distance, 0);
-    this.totalAmount = this.entries.reduce((sum, entry) => sum + entry.amount, 0);
+    this.entries.forEach(entry => {
+      const { amount, ratePerKm } = calculateConveyanceAmount(entry.mode, entry.distance);
+      entry.amount = amount;
+      entry.ratePerKm = ratePerKm;
+    });
+
+    this.totalDistance = this.entries.reduce((sum, e) => sum + e.distance, 0);
+    this.totalAmount = this.entries.reduce((sum, e) => sum + e.amount, 0);
   }
   next();
 });
 
 const Conveyance = mongoose.model("Conveyance", conveyanceSchema);
-
 export default Conveyance;

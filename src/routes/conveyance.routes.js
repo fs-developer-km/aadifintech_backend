@@ -10,7 +10,8 @@ import {
   approveConveyance,
   rejectConveyance,
   markConveyanceAsPaid,
-  getConveyanceStats
+  getConveyanceStats,
+    getConveyanceRates 
 } from "../controllers/conveyance.controller.js";
 import { protect, verifyAdmin, verifyEmployee } from "../middlewares/auth.middleware.js";
 
@@ -20,6 +21,7 @@ const router = express.Router();
 // 👨‍💼 EMPLOYEE ROUTES
 // =============================================
 
+
 // Create or update conveyance (draft)
 router.post("/", protect, verifyEmployee, createOrUpdateConveyance);
 
@@ -28,6 +30,8 @@ router.patch("/:conveyanceId/submit", protect, verifyEmployee, submitConveyance)
 
 // Get my conveyances
 router.get("/my-conveyances", protect, verifyEmployee, getMyConveyances);
+
+router.get("/rates", protect, getConveyanceRates);
 
 // Get single conveyance by ID
 router.get("/:conveyanceId", protect, verifyEmployee, getConveyanceById);
